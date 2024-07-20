@@ -1,5 +1,9 @@
 package com.rocketseat.planner.trip;
 
+import com.rocketseat.planner.ExceptionHandling.ErrorActivityResponse;
+import com.rocketseat.planner.ExceptionHandling.InvalidExceptionMessage;
+import com.rocketseat.planner.ExceptionHandling.ValidateActivity;
+import com.rocketseat.planner.ExceptionHandling.ValidateDates;
 import com.rocketseat.planner.activity.*;
 import com.rocketseat.planner.link.LinkCreateResponse;
 import com.rocketseat.planner.link.LinkData;
@@ -29,17 +33,29 @@ public class TripController {
     @Autowired
     private LinkService linkService;
 
-    @PostMapping
-    public ResponseEntity<TripCreateResponse> createTrip(@RequestBody TripRequestPayLoad payload) {
-        Trip newTrip = new Trip(payload);
-
-        this.repository.save(newTrip);
-        this.participantService.registroParticipantes(payload.emails_to_invited(), newTrip);
-
-        return ResponseEntity.ok(new TripCreateResponse(newTrip.getId()));
-    }
+    private final ValidateDates validateDates = new ValidateDates();
+    private final ValidateActivity validateActivity = new ValidateActivity();
 
     //TRIPS
+    @PostMapping
+    public ResponseEntity<?> createTrip(@RequestBody TripRequestPayLoad payload) {
+
+        try {
+            // Validar datas
+            validateDates.validateDates(payload.starts_at(), payload.ends_at());
+
+            Trip newTrip = new Trip(payload);
+            this.repository.save(newTrip);
+            this.participantService.registroParticipantes(payload.emails_to_invited(), newTrip);
+
+            return ResponseEntity.ok(new TripCreateResponse(newTrip.getId()));
+
+        } catch (InvalidExceptionMessage e) {
+            // Retornar erro 400 Bad Request com a mensagem da exceção
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<Trip> getTripDetails(@PathVariable UUID id) {
 
@@ -85,16 +101,29 @@ public class TripController {
 
     //ACTIVITIES
     @PostMapping("/{id}/activities")
-    public ResponseEntity<ActivityResponse> registerActivity(@PathVariable UUID id, @RequestBody ActivityRequestPayload payload) {
+    public ResponseEntity<?> registerActivity(@PathVariable UUID id, @RequestBody ActivityRequestPayload payload) {
 
         Optional<Trip> trip = this.repository.findById(id);
 
         if (trip.isPresent()) {
+
             Trip rawtrip = trip.get();
 
-            ActivityResponse activityResponse = this.activityService.registerActivity(payload, rawtrip);
+            try {
+                validateActivity.ValidateActivity(payload.occurs_at(), rawtrip.getStartsAt(), rawtrip.getEndsAt());
 
-            return ResponseEntity.ok(activityResponse);
+                ActivityResponse activityResponse = this.activityService.registerActivity(payload, rawtrip);
+
+                return ResponseEntity.ok(activityResponse);
+            }
+            catch (InvalidExceptionMessage e) {
+                // Crie uma instância de ActivityResponse (vazia ou com dados)
+                ActivityResponse activityResponse = null; // Adapte conforme necessário
+
+                // Crie e retorne um ErrorActivityResponse
+                ErrorActivityResponse errorResponse = new ErrorActivityResponse(null, e.getMessage());
+                return ResponseEntity.badRequest().body(errorResponse);
+            }
         }
 
         return ResponseEntity.notFound().build();
